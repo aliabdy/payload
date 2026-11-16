@@ -1,0 +1,33 @@
+[package]
+name = "payload"
+version = "0.1.0"
+description = "Payload - a local API tester"
+authors = ["ali abdy"]
+license = "MIT"
+edition = "2024"
+
+[lib]
+name = "payload_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.13", features = ["json", "form", "cookies", "gzip", "brotli", "deflate", "zstd", "stream"] }
+tokio = { version = "1", features = ["sync", "macros"] }
+futures-util = "0.3"
+base64 = "0.22"
+encoding_rs = "0.8"
+url = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
