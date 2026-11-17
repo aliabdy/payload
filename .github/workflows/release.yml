@@ -49,6 +49,9 @@ jobs:
           workspaces: src-tauri -> target
           key: ${{ matrix.name }}
 
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
