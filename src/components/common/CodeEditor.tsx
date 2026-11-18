@@ -49,6 +49,7 @@ export function CodeEditor({
       <CodeMirror
         value={value}
         height={resolvedHeight}
+        style={{ height: resolvedHeight }}
         theme="none"
         extensions={extensions}
         editable={!readOnly}
