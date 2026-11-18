@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Copy, Download, Inbox, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Copy, Download, Inbox, RefreshCw, Search } from "lucide-react";
 import { Button } from "@ui-sdk/react/button";
 import { Input } from "@ui-sdk/react/input";
 import {
@@ -25,9 +25,14 @@ import {
   prettyJson,
   statusClass,
 } from "../../lib/format";
+import { findMatches, type MatchRange } from "../../lib/search";
 import { toastError, toastSuccess } from "../../lib/toast";
 import { useAppStore } from "../../store/useAppStore";
 import { CodeEditor } from "../common/CodeEditor";
+import { ResponseSearchBar } from "./ResponseSearchBar";
+
+type HtmlMode = "preview" | "raw";
+type JsonMode = "pretty" | "raw";
 
 function responseFileName(response: ResponseData): string {
   const type = response.contentType?.toLowerCase() ?? "";
@@ -43,11 +48,15 @@ const isMac =
 
 function ResponseMeta({
   response,
+  searchOpen,
+  onToggleSearch,
   onCopy,
   onCopyUrl,
   onSave,
 }: {
   response: ResponseData;
+  searchOpen: boolean;
+  onToggleSearch: () => void;
   onCopy: () => void;
   onCopyUrl: () => void;
   onSave: () => void;
@@ -82,6 +91,19 @@ function ResponseMeta({
         </TooltipTrigger>
         <TooltipContent data-agent-hidden>Copy final URL</TooltipContent>
       </Tooltip>
+      {response.bodyText ? (
+        <Tooltip>
+          <TooltipTrigger
+            className="icon-button"
+            aria-label="Search response body"
+            aria-pressed={searchOpen}
+            onClick={onToggleSearch}
+          >
+            <Search size={13} aria-hidden="true" />
+          </TooltipTrigger>
+          <TooltipContent data-agent-hidden>Search response body</TooltipContent>
+        </Tooltip>
+      ) : null}
       {response.bodyText !== undefined ? (
         <>
           <Tooltip>
@@ -110,14 +132,111 @@ function ResponseMeta({
   );
 }
 
-function BodyView({ response }: { response: ResponseData }) {
-  const pretty = useMemo(
-    () =>
-      response.bodyText !== undefined && isJsonResponse(response)
-        ? prettyJson(response.bodyText)
-        : "",
-    [response],
+function MatchText({
+  text,
+  ranges,
+  activeIndex,
+}: {
+  text: string;
+  ranges: MatchRange[];
+  activeIndex: number;
+}) {
+  const content = useMemo(() => {
+    if (ranges.length === 0) return text;
+    const parts: ReactNode[] = [];
+    let cursor = 0;
+    ranges.forEach((range, index) => {
+      if (range.start > cursor) parts.push(text.slice(cursor, range.start));
+      parts.push(
+        <mark
+          key={`${range.start}:${index}`}
+          className={
+            index === activeIndex
+              ? "search-match search-match-active"
+              : "search-match"
+          }
+          data-search-current={index === activeIndex ? "true" : undefined}
+        >
+          {text.slice(range.start, range.end)}
+        </mark>,
+      );
+      cursor = range.end;
+    });
+    if (cursor < text.length) parts.push(text.slice(cursor));
+    return parts;
+  }, [text, ranges, activeIndex]);
+
+  return <>{content}</>;
+}
+
+interface BodySearch {
+  open: boolean;
+  query: string;
+  text: string;
+  ranges: MatchRange[];
+  capped: boolean;
+  activeIndex: number;
+  unsupported: boolean;
+  onQueryChange: (query: string) => void;
+  onNext: () => void;
+  onPrev: () => void;
+  onClose: () => void;
+}
+
+function BodyView({
+  response,
+  pretty,
+  htmlMode,
+  jsonMode,
+  onHtmlModeChange,
+  onJsonModeChange,
+  search,
+}: {
+  response: ResponseData;
+  pretty: string;
+  htmlMode: HtmlMode;
+  jsonMode: JsonMode;
+  onHtmlModeChange: (mode: HtmlMode) => void;
+  onJsonModeChange: (mode: JsonMode) => void;
+  search: BodySearch;
+}) {
+  const paneRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!search.open || search.activeIndex < 0) return;
+    paneRef.current
+      ?.querySelector("mark[data-search-current]")
+      ?.scrollIntoView({ block: "center" });
+  }, [
+    search.open,
+    search.query,
+    search.activeIndex,
+    search.text,
+    htmlMode,
+    jsonMode,
+  ]);
+
+  const highlight = (text: string) => (
+    <MatchText
+      text={text}
+      ranges={search.ranges}
+      activeIndex={search.activeIndex}
+    />
   );
+
+  const searchBar = search.open ? (
+    <ResponseSearchBar
+      query={search.query}
+      matchCount={search.ranges.length}
+      activeIndex={search.activeIndex}
+      capped={search.capped}
+      unsupported={search.unsupported}
+      onQueryChange={search.onQueryChange}
+      onNext={search.onNext}
+      onPrev={search.onPrev}
+      onClose={search.onClose}
+    />
+  ) : null;
 
   if (response.bodyBase64) {
     const type = response.contentType ?? "application/octet-stream";
@@ -155,64 +274,98 @@ function BodyView({ response }: { response: ResponseData }) {
 
   if (response.contentType?.toLowerCase().includes("text/html")) {
     return (
-      <Tabs defaultValue="preview" className="section-tabs response-mode-tabs" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        <TabsList aria-label="HTML response view">
-          <TabsTab value="preview">Preview</TabsTab>
-          <TabsTab value="raw">Raw</TabsTab>
-        </TabsList>
-        <TabsPanel value="preview" style={{ flex: 1, minHeight: 0 }}>
-          <iframe
-            className="html-preview"
-            sandbox=""
-            srcDoc={response.bodyText}
-            title="HTML response preview"
-          />
-        </TabsPanel>
-        <TabsPanel value="raw" style={{ flex: 1, minHeight: 0 }}>
-          <div className="response-scroll" style={{ height: "100%" }}>
-            <div className="response-body-view">
-              <pre className="code-view">{response.bodyText}</pre>
+      <div className="response-body-pane" ref={paneRef}>
+        <Tabs
+          value={htmlMode}
+          onValueChange={(value) => {
+            if (value === "preview" || value === "raw") onHtmlModeChange(value);
+          }}
+          className="section-tabs response-mode-tabs"
+          style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+        >
+          <TabsList aria-label="HTML response view">
+            <TabsTab value="preview">Preview</TabsTab>
+            <TabsTab value="raw">Raw</TabsTab>
+          </TabsList>
+          <TabsPanel value="preview" style={{ flex: 1, minHeight: 0 }}>
+            <iframe
+              className="html-preview"
+              sandbox=""
+              srcDoc={response.bodyText}
+              title="HTML response preview"
+            />
+          </TabsPanel>
+          <TabsPanel value="raw" style={{ flex: 1, minHeight: 0 }}>
+            <div className="response-scroll" style={{ height: "100%" }}>
+              <div className="response-body-view">
+                <pre className="code-view">{highlight(response.bodyText)}</pre>
+              </div>
             </div>
-          </div>
-        </TabsPanel>
-      </Tabs>
+          </TabsPanel>
+        </Tabs>
+        {searchBar}
+      </div>
     );
   }
 
   if (isJsonResponse(response)) {
     return (
-      <Tabs defaultValue="pretty" className="section-tabs response-mode-tabs" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        <TabsList aria-label="JSON response view">
-          <TabsTab value="pretty">Pretty</TabsTab>
-          <TabsTab value="raw">Raw</TabsTab>
-        </TabsList>
-        <TabsPanel value="pretty" style={{ flex: 1, minHeight: 0 }}>
-          <div className="response-json">
-            <CodeEditor
-              value={pretty}
-              readOnly
-              language="json"
-              height="100%"
-              ariaLabel="Pretty JSON response"
-            />
-          </div>
-        </TabsPanel>
-        <TabsPanel value="raw" style={{ flex: 1, minHeight: 0 }}>
-          <div className="response-scroll" style={{ height: "100%" }}>
-            <div className="response-body-view">
-              <pre className="code-view">{response.bodyText}</pre>
+      <div className="response-body-pane" ref={paneRef}>
+        <Tabs
+          value={jsonMode}
+          onValueChange={(value) => {
+            if (value === "pretty" || value === "raw") onJsonModeChange(value);
+          }}
+          className="section-tabs response-mode-tabs"
+          style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+        >
+          <TabsList aria-label="JSON response view">
+            <TabsTab value="pretty">Pretty</TabsTab>
+            <TabsTab value="raw">Raw</TabsTab>
+          </TabsList>
+          <TabsPanel value="pretty" style={{ flex: 1, minHeight: 0 }}>
+            <div className="response-json">
+              <CodeEditor
+                value={pretty}
+                readOnly
+                language="json"
+                height="100%"
+                ariaLabel="Pretty JSON response"
+                nativeSearch={false}
+                search={
+                  search.open &&
+                  jsonMode === "pretty" &&
+                  search.ranges.length > 0
+                    ? {
+                        ranges: search.ranges,
+                        activeIndex: search.activeIndex,
+                      }
+                    : undefined
+                }
+              />
             </div>
-          </div>
-        </TabsPanel>
-      </Tabs>
+          </TabsPanel>
+          <TabsPanel value="raw" style={{ flex: 1, minHeight: 0 }}>
+            <div className="response-scroll" style={{ height: "100%" }}>
+              <div className="response-body-view">
+                <pre className="code-view">{highlight(response.bodyText)}</pre>
+              </div>
+            </div>
+          </TabsPanel>
+        </Tabs>
+        {searchBar}
+      </div>
     );
   }
 
   return (
-    <div className="response-scroll">
-      <div className="response-body-view">
-        <pre className="code-view">{response.bodyText}</pre>
+    <div className="response-body-pane" ref={paneRef}>
+      <div className="response-scroll">
+        <div className="response-body-view">
+          <pre className="code-view">{highlight(response.bodyText)}</pre>
+        </div>
       </div>
+      {searchBar}
     </div>
   );
 }
@@ -224,9 +377,49 @@ export function ResponsePanel() {
   const sendActive = useAppStore((state) => state.sendActive);
   const dismissActiveError = useAppStore((state) => state.dismissActiveError);
   const [headerFilter, setHeaderFilter] = useState("");
+  const [sectionTab, setSectionTab] = useState("body");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeMatch, setActiveMatch] = useState(0);
+  const [htmlMode, setHtmlMode] = useState<HtmlMode>("preview");
+  const [jsonMode, setJsonMode] = useState<JsonMode>("pretty");
   const response = tab?.response ?? null;
   const error = tab?.error ?? null;
   const sending = tab?.sending ?? false;
+
+  const pretty = useMemo(
+    () =>
+      response?.bodyText !== undefined && isJsonResponse(response)
+        ? prettyJson(response.bodyText).replace(/\r\n?/g, "\n")
+        : "",
+    [response],
+  );
+
+  const isHtml = (response?.contentType?.toLowerCase() ?? "").includes(
+    "text/html",
+  );
+  const isJson = response ? isJsonResponse(response) : false;
+  const searchText = useMemo(() => {
+    const body = response?.bodyText;
+    if (body === undefined) return "";
+    if (isHtml) return body;
+    if (isJson && jsonMode === "pretty") return pretty;
+    return body;
+  }, [response?.bodyText, isHtml, isJson, jsonMode, pretty]);
+
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setActiveMatch(0);
+  }, [response]);
+
+  const matches = useMemo(
+    () => findMatches(searchText, searchOpen ? searchQuery : ""),
+    [searchText, searchOpen, searchQuery],
+  );
+  const matchCount = matches.ranges.length;
+  const activeIndex = matchCount > 0 ? Math.min(activeMatch, matchCount - 1) : -1;
+  const searchUnsupported = isHtml && htmlMode === "preview";
 
   const timeline = useMemo(() => {
     if (!response) return [];
@@ -281,6 +474,41 @@ export function ResponsePanel() {
     } catch (saveError) {
       toastError("Could not save the response body", saveError);
     }
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setActiveMatch(0);
+  };
+
+  const toggleSearch = () => {
+    if (searchOpen && sectionTab === "body") {
+      closeSearch();
+      return;
+    }
+    setSectionTab("body");
+    setSearchOpen(true);
+  };
+
+  const changeSearchQuery = (query: string) => {
+    setSearchQuery(query);
+    setActiveMatch(0);
+  };
+
+  const nextMatch = () => {
+    if (matchCount === 0) return;
+    setActiveMatch(
+      (current) => (Math.min(current, matchCount - 1) + 1) % matchCount,
+    );
+  };
+
+  const prevMatch = () => {
+    if (matchCount === 0) return;
+    setActiveMatch(
+      (current) =>
+        (Math.min(current, matchCount - 1) - 1 + matchCount) % matchCount,
+    );
   };
 
   if (!response && !error) {
@@ -359,11 +587,19 @@ export function ResponsePanel() {
     <section className="pane" aria-label="Response">
       <ResponseMeta
         response={response}
+        searchOpen={searchOpen}
+        onToggleSearch={toggleSearch}
         onCopy={() => void copyBody()}
         onCopyUrl={() => void copyUrl()}
         onSave={() => void saveBody()}
       />
-      <Tabs defaultValue="body" className="section-tabs response-tabs">
+      <Tabs
+        value={sectionTab}
+        onValueChange={(value) => {
+          if (value) setSectionTab(value);
+        }}
+        className="section-tabs response-tabs"
+      >
         <TabsList aria-label="Response sections">
           <TabsTab value="body">Body</TabsTab>
           <TabsTab value="headers">
@@ -375,7 +611,27 @@ export function ResponsePanel() {
           <TabsTab value="timeline">Timeline</TabsTab>
         </TabsList>
         <TabsPanel value="body" className="response-panel">
-          <BodyView response={response} />
+          <BodyView
+            response={response}
+            pretty={pretty}
+            htmlMode={htmlMode}
+            jsonMode={jsonMode}
+            onHtmlModeChange={setHtmlMode}
+            onJsonModeChange={setJsonMode}
+            search={{
+              open: searchOpen,
+              query: searchQuery,
+              text: searchText,
+              ranges: matches.ranges,
+              capped: matches.capped,
+              activeIndex,
+              unsupported: searchUnsupported,
+              onQueryChange: changeSearchQuery,
+              onNext: nextMatch,
+              onPrev: prevMatch,
+              onClose: closeSearch,
+            }}
+          />
         </TabsPanel>
         <TabsPanel value="headers" className="response-panel">
           <div className="response-scroll">

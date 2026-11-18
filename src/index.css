@@ -67,6 +67,9 @@
   --code-null: #c084fc;
   --code-punctuation: #71809a;
   --code-invalid: #fb7185;
+  --search-match-bg: rgb(251 191 36 / 0.32);
+  --search-match-active-bg: #fbbf24;
+  --search-match-active-fg: #1a1203;
 }
 
 :root[data-theme="light"] {
@@ -108,6 +111,9 @@
   --code-null: #7e22ce;
   --code-punctuation: #5b6779;
   --code-invalid: #be123c;
+  --search-match-bg: rgb(250 204 21 / 0.38);
+  --search-match-active-bg: #f59e0b;
+  --search-match-active-fg: #1f1300;
 }
 
 /* ---------- accent presets ---------- */
@@ -1518,6 +1524,14 @@ button:focus-visible {
   background: var(--app-sunken);
 }
 
+.response-body-pane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .response-body-view {
   padding: 10px 12px;
   min-height: 100%;
@@ -1539,6 +1553,89 @@ button:focus-visible {
   tab-size: 2;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+mark.search-match,
+.cm-search-match {
+  padding: 0;
+  border-radius: 2px;
+  background: var(--search-match-bg);
+  color: inherit;
+}
+
+mark.search-match-active,
+.cm-search-match-active {
+  background: var(--search-match-active-bg);
+  color: var(--search-match-active-fg);
+}
+
+.response-search {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 32px;
+  padding-right: 3px;
+  border: 1px solid var(--app-line-strong);
+  border-radius: 8px;
+  background: var(--app-surface);
+  box-shadow: 0 12px 28px -18px rgb(0 0 0 / 0.8);
+}
+
+.response-search:focus-within {
+  border-color: var(--app-accent-strong);
+  box-shadow: 0 0 0 2px var(--app-accent-soft);
+}
+
+.response-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.response-search-box .search-icon {
+  left: 8px;
+}
+
+.response-search input {
+  width: 190px;
+  height: 28px;
+  padding-left: 26px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--text-sm);
+}
+
+.response-search input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.response-search .icon-button {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+}
+
+.response-search .icon-button:disabled {
+  opacity: 0.4;
+}
+
+.response-search-status {
+  padding: 0 6px;
+  color: var(--ui-muted-foreground);
+  font-family: var(--ui-font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.response-search-status.is-empty {
+  color: var(--warn-text);
 }
 
 .headers-table {
