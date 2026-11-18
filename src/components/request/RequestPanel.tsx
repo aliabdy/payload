@@ -160,6 +160,16 @@ export function RequestPanel() {
     else toastError("Could not copy to clipboard");
   };
 
+  const submit = () => {
+    if (urlEmpty) return;
+    if (urlInvalid) {
+      setUrlTouched(true);
+      urlInputRef.current?.focus();
+      return;
+    }
+    void sendActive();
+  };
+
   return (
     <section className="pane" aria-label="Request">
       <div className="pane-head request-toolbar">
@@ -252,6 +262,18 @@ export function RequestPanel() {
               data-request-url
               value={request.url}
               onValueChange={(url) => update({ url })}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault();
+                  if (!tab.sending) submit();
+                }
+              }}
               onBlur={() => setUrlTouched(true)}
               placeholder="https://api.example.com/users/{{id}}"
               spellCheck={false}
@@ -276,12 +298,7 @@ export function RequestPanel() {
                 void cancelActive();
                 return;
               }
-              if (urlInvalid) {
-                setUrlTouched(true);
-                urlInputRef.current?.focus();
-                return;
-              }
-              void sendActive();
+              submit();
             }}
           >
             {tab.sending ? (
